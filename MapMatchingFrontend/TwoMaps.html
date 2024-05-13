@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Display Coordinates with Leaflet</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+
+        .maps-container{
+            display : flex;
+            flex-direction: row;
+            justify-content: space-around;
+        }
+
+        #map {
+            height: 800px;
+            width: 90%;
+            margin: 0 auto;
+            border: 20px solid black;
+        }
+    
+
+        .leaflet-container {
+            background-color: #f8f8f8; /* Set background color for the map */
+        }
+
+        .button-container {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .fetch-button, .clear-button {
+            padding: 10px 20px;
+            background-color: #007bff; /* Blue color for the button */
+            color: #fff; /* White text color */
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .fetch-button, .clear-button:hover {
+            background-color: #0056b3; /* Darker blue color on hover */
+        }
+    </style>
+</head>
+
+<body class="leaflet-container">
+    <section class = "maps-container">
+        <div id="map"></div>
+    </section>
+
+    <div class="button-container">
+        <button class="fetch-button" onclick="fetchCoordinates()">Fetch Coordinates</button>
+        <button class="clear-button" onclick="clearData()">Clear Data</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Initialize two Leaflet maps
+let addedLayers = [];
+var map = L.map('map').setView([0,0], 2);
+
+//Add a tile layer to the maps
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+
+// Function to fetch coordinates
+function fetchAndDisplayGeoJSON() {
+    console.log("working...abc");
+    fetch('http://127.0.0.1:8080/MapMatchingFrontend/map_matching_data/useful.geojson')
+        .then(response => response.json())
+        .then(geojson => {
+            console.log(geojson);
+
+            const lineStyle = {
+                color: '#000000', // Black color
+                weight: 4, // Thickness of the line
+            };
+
+            // Create a GeoJSON layer with custom style and add it to the map
+            L.geoJSON(geojson, {
+                style: lineStyle // Apply the custom style to all features
+            }).addTo(map);
+
+            // L.geoJSON(geojson).addTo(map);
+            
+            var geojsonBounds = L.geoJSON(geojson).getBounds();
+            map.fitBounds(geojsonBounds); 
+        })
+        .catch(error => console.error('Error fetching GeoJSON:', error));
+}
+
+fetchAndDisplayGeoJSON();
+
+
+function createCustomMarker(color) {
+    // Define the HTML styles for the marker with the specified color
+    const markerHtmlStyles = `
+        background-color: ${color};
+        width: 1rem;
+        height: 1rem;
+        display: block;
+        left: -1.5rem;
+        top: -1.5rem;
+        position: relative;
+        border-radius: 2rem 2rem 0;
+        transform: rotate(45deg);
+        border: 1px solid #FFFFFF`;
+
+    // Create and return the divIcon with the specified HTML styles
+    return L.divIcon({
+        className: "custom-pin",
+        iconAnchor: [-10, -10], // Center the icon on the clicked location
+        popupAnchor: [-10, -10], // Offset for the popup if you have one
+        html: `<span style="${markerHtmlStyles}" />`
+    });
+}
+
+// Event listener for map click
+map.on('click', function (e) {
+    // Retrieve the coordinates of the clicked location
+    var latlng = e.latlng;
+
+    // Display a black marker at the clicked location
+    // var marker = L.marker(latlng, {icon: createCustomMarker('#000000')}).addTo(map);
+    const marker = L.marker(latlng, {icon: createCustomMarker('#000000')}).addTo(map);
+
+
+// Store references to the added marker and line
+    addedLayers.push(marker);
+    
+
+    // Send the coordinates to the backend via a POST request
+    fetchCoordinates(latlng);
+});
+
+function fetchCoordinates(latlng) {
+    console.log("Fetching coordinates...");
+    console.log(latlng.lat);
+    console.log(latlng.lng);
+
+    // Define the data to send in the POST request
+    const data = [latlng.lng, latlng.lat];
+
+    // Define the options for the fetch request
+    const options = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    };
+
+    // Send the POST request
+    fetch('http://localhost:8585/processCoordinates', options)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        console.log(response);
+        
+        // Check if the response status is 204 (No Content)
+        if (response.status === 204) {
+            console.log('Empty response from backend');
+            return null; // Return null if no content
+        }
+        return response.json(); // Parse JSON if content exists
+    })
+    .then(data => {
+        if (data !== null) {
+            console.log('Response from backend:', data);
+            // Display the list of points on the map
+            displayPoints(data);
+        }
+        // Handle the case when data is null (no content)
+    })
+    .catch(error => {
+        console.error('Error sending POST request:', error);
+        // Handle errors if needed
+    });
+}
+
+// function displayPoints(points) {
+//     // Iterate over each point and create a marker on the map
+//     points.forEach(point => {
+//         // Create a marker for each point and add it to the map
+//         L.marker([point.latitude, point.longitude], {icon: createCustomMarker('#4361ee')}).addTo(map);
+//     });
+// }
+
+function displayPoints(points) {
+    // Extract latitude and longitude coordinates from the points
+    const latLngs = points.map(point => [point.latitude, point.longitude]);
+    
+    const lineStyle = {
+                color: '#4361ee', // Black color
+                weight: 10, // Thickness of the line
+            };
+    // Create a polyline using the extracted coordinates and add it to the map
+    const line = L.polyline(latLngs, lineStyle).addTo(map);
+    addedLayers.push(line);
+}
+
+function clearData() {
+// Define the data to send in the POST request
+const data = { data: 'clear' };
+
+// Define the options for the fetch request
+const options = {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+};
+
+// Send the POST request
+fetch('http://localhost:8585/clearData', options)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Response from backend:', data);
+        clearMarkersAndLines();
+        // Handle the response from the backend if needed
+    })
+    .catch(error => {
+        console.error('Error sending POST request:', error);
+        // Handle errors if needed
+    });
+}
+
+// Event listener for the clear button
+document.querySelector('.clear-button').addEventListener('click', function() {
+    // Call the function to clear data
+    clearData();
+});
+
+function clearMarkersAndLines() {
+// Remove all markers and lines added by fetchCoordinates
+    addedLayers.forEach(layer => map.removeLayer(layer));
+
+    // Clear the array of added layers
+    addedLayers = [];
+}
+    </script>
+</body>
+</html>
